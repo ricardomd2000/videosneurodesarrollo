@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Videos: cualquiera puede leer, solo maestros autenticados pueden escribir
+    match /videos/{videoId} {
+      allow read: true;
+      allow write: if request.auth != null;
+    }
+    // Categorías
+    match /categorias/{catId} {
+      allow read: true;
+      allow write: if request.auth != null;
+    }
+  }
+}
