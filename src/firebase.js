@@ -19,6 +19,6 @@ export const auth = getAuth(app);
 // Correos autorizados de los 3 docentes
 export const TEACHER_EMAILS = [
     "ricardoaldo@unisabana.edu.co",
-    "luis.chaustre@unisabana.edu.co",
+    "luischani@unisabana.edu.co",
     "henry.leon@clinicaunisabana.edu.co",
 ];
