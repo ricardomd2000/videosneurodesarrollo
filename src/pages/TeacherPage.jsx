@@ -119,29 +119,91 @@ function LoginForm({ notAuthorized }) {
     )
 }
 
+const RUBRIC_CRITERIA = [
+    { id: 'hitos', label: '1. Identificación de hitos', weight: 0.15, desc: 'Reconocimiento de hitos motores, cognitivos, lenguaje y socioemocionales.' },
+    { id: 'puestaEscena', label: '2. Puesta en escena (Role Play)', weight: 0.20, desc: 'Calidad de la representación dramática y fidelidad al mes.' },
+    { id: 'estructuras', label: '3. Explicación de estructuras', weight: 0.20, desc: 'Relación con estructuras neurológicas y áreas cerebrales.' },
+    { id: 'creatividad', label: '4. Creatividad y originalidad', weight: 0.10, desc: 'Uso de recursos, vestuario, narrativa e innovación.' },
+    { id: 'trabajoEquipo', label: '5. Trabajo en equipo', weight: 0.15, desc: 'Participación equitativa y coordinación de integrantes.' },
+    { id: 'calidadVideo', label: '6. Calidad del video', weight: 0.10, desc: 'Audio, iluminación, edición y aspectos técnicos.' },
+    { id: 'entrega', label: '7. Entrega y publicación', weight: 0.10, desc: 'Link funcional de YouTube, descripción y puntualidad.' }
+]
+
+function RubricModal({ video, currentRubric, onSave, onClose }) {
+    const [scores, setScores] = useState(RUBRIC_CRITERIA.reduce((acc, c) => ({
+        ...acc,
+        [c.id]: currentRubric?.[c.id] ?? 0
+    }), {}))
+
+    const total = RUBRIC_CRITERIA.reduce((acc, c) => acc + (Number(scores[c.id]) * c.weight), 0).toFixed(2)
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-card rubric-modal">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <h3 style={{ margin: 0 }}>📊 Rúbrica: {video.nombre}</h3>
+                    <button className="btn-close" onClick={onClose}>&times;</button>
+                </div>
+
+                <div className="rubric-grid">
+                    {RUBRIC_CRITERIA.map(c => (
+                        <div key={c.id} className="rubric-item">
+                            <div className="rubric-info">
+                                <strong>{c.label}</strong>
+                                <p>{c.desc}</p>
+                            </div>
+                            <div className="rubric-score">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="5"
+                                    step="0.1"
+                                    value={scores[c.id]}
+                                    onChange={e => setScores(s => ({ ...s, [c.id]: e.target.value }))}
+                                    className="grade-input"
+                                />
+                                <span className="weight-label">({(c.weight * 100)}%)</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="rubric-footer">
+                    <div className="total-box">
+                        Nota Final: <span>{total}</span> / 5.0
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.8rem' }}>
+                        <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
+                        <button className="btn btn-primary" onClick={() => onSave(scores, total)}>
+                            💾 Guardar Rúbrica
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 /* ─── GRADING PANEL ─── */
 function GradingPanel({ user, teacherKey, teacherName }) {
     const [videos, setVideos] = useState([])
     const [loading, setLoading] = useState(true)
-    const [grades, setGrades] = useState({})   // { videoId: { nota: '', comentario: '' } }
-    const [saved, setSaved] = useState({})    // { videoId: true }
-    const [saving, setSaving] = useState({})   // { videoId: true }
+    const [activeRubric, setActiveRubric] = useState(null) // ID of video being rubric-graded
+    const [grades, setGrades] = useState({})   // { videoId: { nota: '', comentario: '', rubrica: {} } }
+    const [saving, setSaving] = useState({})
 
     useEffect(() => {
         const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'))
         const unsub = onSnapshot(q, (snap) => {
             const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
             setVideos(docs)
-            // Pre-fill with existing grades for this teacher
             const initial = {}
             docs.forEach(v => {
-                if (v.notas?.[teacherKey]) {
-                    initial[v.id] = {
-                        nota: String(v.notas[teacherKey].nota ?? ''),
-                        comentario: v.notas[teacherKey].comentario ?? ''
-                    }
-                } else {
-                    initial[v.id] = { nota: '', comentario: '' }
+                const myGrade = v.notas?.[teacherKey]
+                initial[v.id] = {
+                    nota: myGrade ? String(myGrade.nota ?? '') : '',
+                    comentario: myGrade ? (myGrade.comentario ?? '') : '',
+                    rubrica: myGrade?.rubrica ?? null
                 }
             })
             setGrades(initial)
@@ -150,30 +212,44 @@ function GradingPanel({ user, teacherKey, teacherName }) {
         return () => unsub()
     }, [teacherKey])
 
-    const handleChange = (videoId, field, value) => {
-        setGrades(prev => ({
-            ...prev,
-            [videoId]: { ...prev[videoId], [field]: value }
-        }))
-        setSaved(prev => ({ ...prev, [videoId]: false }))
-    }
-
-    const handleSave = async (videoId) => {
-        const g = grades[videoId]
-        const nota = Number(g.nota)
-        if (isNaN(nota) || nota < 0 || nota > 100) {
-            alert('La nota debe ser un número entre 0 y 100.')
-            return
-        }
+    const handleSaveRubric = async (scores, total) => {
+        const videoId = activeRubric
         setSaving(prev => ({ ...prev, [videoId]: true }))
         try {
+            const currentComment = grades[videoId]?.comentario || ''
             await updateDoc(doc(db, 'videos', videoId), {
-                [`notas.${teacherKey}`]: { nota, comentario: g.comentario || '' }
+                [`notas.${teacherKey}`]: {
+                    nota: Number(total),
+                    comentario: currentComment,
+                    rubrica: scores
+                }
             })
-            setSaved(prev => ({ ...prev, [videoId]: true }))
+            setActiveRubric(null)
         } catch (err) {
             console.error(err)
-            alert('Error al guardar. Intenta de nuevo.')
+            alert('Error al guardar rúbrica.')
+        } finally {
+            setSaving(prev => ({ ...prev, [videoId]: false }))
+        }
+    }
+
+    const handleCommentChange = (videoId, val) => {
+        setGrades(prev => ({
+            ...prev,
+            [videoId]: { ...prev[videoId], comentario: val }
+        }))
+    }
+
+    const saveCommentOnly = async (videoId) => {
+        setSaving(prev => ({ ...prev, [videoId]: true }))
+        try {
+            const current = grades[videoId]
+            await updateDoc(doc(db, 'videos', videoId), {
+                [`notas.${teacherKey}.comentario`]: current.comentario
+            })
+        } catch (err) {
+            console.error(err)
+            alert('Error al guardar comentario.')
         } finally {
             setSaving(prev => ({ ...prev, [videoId]: false }))
         }
@@ -183,6 +259,15 @@ function GradingPanel({ user, teacherKey, teacherName }) {
 
     return (
         <div className="page-wrapper">
+            {activeRubric && (
+                <RubricModal
+                    video={videos.find(v => v.id === activeRubric)}
+                    currentRubric={grades[activeRubric]?.rubrica}
+                    onSave={handleSaveRubric}
+                    onClose={() => setActiveRubric(null)}
+                />
+            )}
+
             <div className="page-header">
                 <h1>👩‍🏫 Panel de Calificación</h1>
                 <p>Bienvenida/o, <strong>{teacherName}</strong> · {user.email}</p>
@@ -218,7 +303,7 @@ function GradingPanel({ user, teacherKey, teacherName }) {
                                 <tr>
                                     <th style={{ width: '200px' }}>Estudiante</th>
                                     <th>Video</th>
-                                    <th style={{ width: '220px' }}>Tu Nota (0–100)</th>
+                                    <th style={{ width: '250px' }}>Calificación (Rúbrica)</th>
                                     <th style={{ width: '100px' }}>Estado</th>
                                 </tr>
                             </thead>
@@ -237,46 +322,50 @@ function GradingPanel({ user, teacherKey, teacherName }) {
                                                     href={video.url}
                                                     target="_blank"
                                                     rel="noreferrer"
-                                                    style={{ color: 'var(--accent-secondary)', textDecoration: 'none', fontSize: '0.85rem' }}
+                                                    className="btn-link"
                                                 >
                                                     🔗 Ver video
                                                 </a>
                                             </td>
                                             <td>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                    <div className="grade-input-row">
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                        <button
+                                                            className={`btn ${already ? 'btn-outline' : 'btn-primary'} btn-sm`}
+                                                            onClick={() => setActiveRubric(video.id)}
+                                                            disabled={saving[video.id]}
+                                                        >
+                                                            {already ? '📝 Editar Rúbrica' : '📋 Calificar con Rúbrica'}
+                                                        </button>
+                                                        {already && (
+                                                            <div className="final-grade-badge">
+                                                                Nota: <strong>{Number(already.nota).toFixed(1)}</strong>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', gap: '0.3rem' }}>
                                                         <input
-                                                            id={`grade-${video.id}`}
-                                                            className="grade-input"
-                                                            type="number"
-                                                            min="0"
-                                                            max="100"
-                                                            placeholder="—"
-                                                            value={g.nota}
-                                                            onChange={e => handleChange(video.id, 'nota', e.target.value)}
+                                                            className="form-control"
+                                                            style={{ fontSize: '0.8rem', padding: '0.35rem 0.6rem' }}
+                                                            placeholder="Comentario (opcional)"
+                                                            value={g.comentario}
+                                                            onChange={e => handleCommentChange(video.id, e.target.value)}
                                                         />
                                                         <button
-                                                            id={`save-${video.id}`}
                                                             className="btn btn-success btn-sm"
-                                                            onClick={() => handleSave(video.id)}
-                                                            disabled={saving[video.id] || !g.nota}
+                                                            onClick={() => saveCommentOnly(video.id)}
+                                                            title="Guardar comentario"
+                                                            disabled={saving[video.id]}
                                                         >
-                                                            {saving[video.id] ? '...' : saved[video.id] ? '✅' : '💾'}
+                                                            {saving[video.id] ? '...' : '💾'}
                                                         </button>
                                                     </div>
-                                                    <input
-                                                        id={`comment-${video.id}`}
-                                                        className="form-control"
-                                                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.6rem' }}
-                                                        placeholder="Comentario (opcional)"
-                                                        value={g.comentario}
-                                                        onChange={e => handleChange(video.id, 'comentario', e.target.value)}
-                                                    />
                                                 </div>
                                             </td>
                                             <td>
                                                 {already ? (
-                                                    <span className="badge badge-graded">✅ {already.nota}</span>
+                                                    <span className="badge badge-graded">✅ OK</span>
                                                 ) : (
                                                     <span className="badge badge-pending">⏳ Pendiente</span>
                                                 )}

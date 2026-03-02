@@ -120,7 +120,7 @@ function VideoCard({ video }) {
                                 <span className="grade-teacher">{TEACHER_NAMES[i]}</span>
                                 {nota !== undefined ? (
                                     <div style={{ textAlign: 'right' }}>
-                                        <span className="grade-value">{nota.nota}/100</span>
+                                        <span className="grade-value">{Number(nota.nota).toFixed(1)} / 5.0</span>
                                         {nota.comentario && (
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: '150px' }}>
                                                 {nota.comentario}
